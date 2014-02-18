@@ -7,9 +7,14 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"code.google.com/p/go.image/bmp"
+	"code.google.com/p/go.image/tiff"
 )
 
 // Open loads an image from file
@@ -30,10 +35,11 @@ func Open(filename string) (img image.Image, err error) {
 }
 
 // Save saves the image to file with the specified filename.
-// The format is determined from the filename extension, "jpg" (or "jpeg") and "png" are supported.
+// The format is determined from the filename extension: "jpg" (or "jpeg"), "png", "tif" (or "tiff") and "bmp" are supported.
 func Save(img image.Image, filename string) (err error) {
 	format := strings.ToLower(filepath.Ext(filename))
-	if format != ".jpg" && format != ".jpeg" && format != ".png" {
+	m, err := regexp.MatchString(`^\.(jpg|jpeg|png|tif|tiff|bmp)$`, format)
+	if err != nil || !m {
 		err = fmt.Errorf(`imaging: unsupported image format: "%s"`, format)
 		return
 	}
@@ -64,15 +70,29 @@ func Save(img image.Image, filename string) (err error) {
 
 	case ".png":
 		err = png.Encode(file, img)
+	case ".tif", ".tiff":
+		err = tiff.Encode(file, img, &tiff.Options{Compression: tiff.Deflate, Predictor: true})
+	case ".bmp":
+		err = bmp.Encode(file, img)
+	default:
+		err = fmt.Errorf(`imaging: unsupported image format: "%s"`, format)
 	}
 	return
 }
 
 // New creates a new image with the specified width and height, and fills it with the specified color.
 func New(width, height int, fillColor color.Color) *image.NRGBA {
-	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
+	if width <= 0 || height <= 0 {
+		return &image.NRGBA{}
+	}
 
+	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
 	c := color.NRGBAModel.Convert(fillColor).(color.NRGBA)
+
+	if c.R == 0 && c.G == 0 && c.B == 0 && c.A == 0 {
+		return dst
+	}
+
 	cs := []uint8{c.R, c.G, c.B, c.A}
 
 	// fill the first row
@@ -96,4 +116,9 @@ func toNRGBA(img image.Image) *image.NRGBA {
 		}
 	}
 	return Clone(img)
+}
+
+// clamp & round float64 to uint8 (0..255)
+func clamp(v float64) uint8 {
+	return uint8(math.Min(math.Max(v, 0.0), 255.0) + 0.5)
 }
